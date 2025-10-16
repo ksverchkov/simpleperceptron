@@ -7,8 +7,10 @@ from typing import List, Tuple, Union
 def zeros(rows: int, cols: int) -> List[List[float]]:
     return [[0.0 for _ in range(cols)] for _ in range(rows)]
 
+
 def random_matrix(rows: int, cols: int, scale: float = 1.0) -> List[List[float]]:
     return [[(random.random() * 2 - 1) * scale for _ in range(cols)] for _ in range(rows)]
+
 
 def dot(a: List[float], b: List[List[float]]) -> List[float]:
     m = len(b[0])
@@ -18,8 +20,10 @@ def dot(a: List[float], b: List[List[float]]) -> List[float]:
             res[j] += ai * b[i][j]
     return res
 
+
 def add_bias(vec: List[float], bias: List[float]) -> List[float]:
     return [v + b for v, b in zip(vec, bias)]
+
 
 def sigmoid(x: float) -> float:
     if x >= 0:
@@ -29,17 +33,21 @@ def sigmoid(x: float) -> float:
         z = math.exp(x)
         return z / (1 + z)
 
+
 def sigmoid_vec(v: List[float]) -> List[float]:
     return [sigmoid(x) for x in v]
 
+
 def sigmoid_derivative_from_act(a: float) -> float:
     return a * (1 - a)
+
 
 def softmax(v: List[float]) -> List[float]:
     m = max(v)
     exps = [math.exp(x - m) for x in v]
     s = sum(exps)
     return [e / s for e in exps]
+
 
 def cross_entropy_loss(probs: List[float], target_index: int) -> float:
     p = max(1e-15, probs[target_index])
@@ -96,6 +104,7 @@ class MLP:
             else:
                 a = sigmoid_vec(z)
                 if train_mode and self.dropout > 0.0:
+                    # применяем простой dropout mask и масштабирование для сохранения ожидания
                     mask = [(1.0 if random.random() > self.dropout else 0.0) for _ in range(len(a))]
                     a = [a[j] * mask[j] / (1.0 - self.dropout) for j in range(len(a))]
             activations.append(a)
@@ -186,6 +195,7 @@ class MLP:
                 correct += 1
         return correct / len(X) if X else 0.0
 
+
 if __name__ == "__main__":
     import math
     import random
@@ -200,12 +210,15 @@ if __name__ == "__main__":
             y.append(1)
         return X, y
 
-    def normalize(X):
+    def normalize(X: List[List[float]]) -> List[List[float]]:
         dim = len(X[0])
         mean = [sum(x[j] for x in X) / len(X) for j in range(dim)]
         std = [math.sqrt(sum((x[j]-mean[j])**2 for x in X) / len(X)) for j in range(dim)]
+        # avoid division by zero
+        std = [s if s > 0 else 1.0 for s in std]
         return [[(x[j]-mean[j])/std[j] for j in range(dim)] for x in X]
 
+    # main demo dataset
     X, y = generate_gaussian_clusters(250)
     X = normalize(X)
     combined = list(zip(X, y))
@@ -213,11 +226,28 @@ if __name__ == "__main__":
     split = int(len(combined)*0.8)
     train = combined[:split]
     test = combined[split:]
-    X_train, y_train = [a for a,_ in train], [b for _,b in train]
-    X_test, y_test = [a for a,_ in test], [b for a,_ in test]
+
+    # fixed bug: correctly unpack train/test into features and labels
+    X_train, y_train = [a for a, _ in train], [label for _, label in train]
+    X_test, y_test = [a for a, _ in test], [label for _, label in test]
 
     model = MLP(input_dim=2, hidden_layers=[16, 8], output_dim=2, seed=42, l2_lambda=0.001, dropout=0.1)
     print("Training MLP with architecture:", model.layers)
     model.train(X_train, y_train, epochs=100, lr=0.5, batch_size=32)
 
-    print("Test accuracy:", model.accuracy(X_test, y_test))
+    test_acc = model.accuracy(X_test, y_test)
+    print("Test accuracy:", test_acc)
+
+    # --- Additional smoke tests (automated checks) ---
+    # 1) probabilites sum to 1
+    sample = X_test[0]
+    probs = model.predict_proba(sample)
+    assert abs(sum(probs) - 1.0) < 1e-6, "Softmax probabilities must sum to 1"
+
+    # 2) accuracy on this simple separable dataset should be reasonably high
+    assert test_acc >= 0.7, f"Expected test accuracy >= 0.7 on synthetic dataset, got {test_acc}"
+
+    # 3) small architecture sanity: create tiny model and ensure it runs
+    small_model = MLP(layers=[2, 4, 2], seed=1)
+    small_model.train(X_train[:40], y_train[:40], epochs=5, lr=0.1, batch_size=8, verbose=False)
+    print("All smoke tests passed.")
